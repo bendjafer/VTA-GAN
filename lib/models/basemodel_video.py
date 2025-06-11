@@ -1,5 +1,6 @@
 import os
 import time
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -17,22 +18,24 @@ class BaseModel_Video():
     """
     def __init__(self, opt, data, classes):
         # Seed for deterministic behavior
-        self.seed(opt.manualseed)
-
-        # Initialize variables
+        self.seed(opt.manualseed)        # Initialize variables
         self.opt = opt
         self.visualizer = Visualizer(opt)
         self.data = data
         self.classes = classes
         self.name = opt.name
-        self.device = torch.device("cuda:0" if opt.device != 'cpu' else "cpu")
+        
+        # Set device based on options - use first GPU ID if available and GPU mode
+        if opt.device != 'cpu' and len(opt.gpu_ids) > 0 and torch.cuda.is_available():
+            self.device = torch.device(f"cuda:{opt.gpu_ids[0]}")
+        else:
+            self.device = torch.device("cpu")
+            
         self.trn_dir = os.path.join(opt.outf, opt.name, 'train')
         self.tst_dir = os.path.join(opt.outf, opt.name, 'test')
-        self.num_frames = opt.num_frames if hasattr(opt, 'num_frames') else 16
-
-        # Initialize networks
-        self.netg = define_G(opt).to(self.device)
-        self.netd = define_D(opt).to(self.device)
+        self.num_frames = opt.num_frames if hasattr(opt, 'num_frames') else 16        # Initialize networks - define_G and define_D already handle device placement
+        self.netg = define_G(opt)
+        self.netd = define_D(opt)
         self.netg.apply(weights_init)
         self.netd.apply(weights_init)
 

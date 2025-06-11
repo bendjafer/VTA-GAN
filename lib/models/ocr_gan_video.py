@@ -62,14 +62,20 @@ class Ocr_Gan_Video(BaseModel_Video):
         self.l_adv = nn.BCELoss()
         self.l_con = nn.L1Loss()
         self.l_lat = l2_loss
-        
-        # Temporal loss for enhanced video processing
+          # Temporal loss for enhanced video processing
         if self.use_temporal_attention:
             self.temporal_loss = CombinedTemporalLoss(
                 consistency_weight=getattr(opt, 'w_temporal_consistency', 0.1),
                 motion_weight=getattr(opt, 'w_temporal_motion', 0.05),
                 reg_weight=getattr(opt, 'w_temporal_reg', 0.01)
-            ).to(self.device)
+            )
+            # Apply device placement and DataParallel if needed
+            if len(opt.gpu_ids) > 0 and opt.gpu_ids[0] >= 0:
+                self.temporal_loss = self.temporal_loss.to(opt.gpu_ids[0])
+                if len(opt.gpu_ids) > 1:
+                    self.temporal_loss = torch.nn.DataParallel(self.temporal_loss, opt.gpu_ids)
+            else:
+                self.temporal_loss = self.temporal_loss.to(self.device)
             print("✅ Temporal loss functions initialized")
         
         # Real and fake labels
@@ -90,36 +96,62 @@ class Ocr_Gan_Video(BaseModel_Video):
             num_heads = next(h for h in possible_heads if opt.nz % h == 0)
             
             print(f"🔧 Using {num_heads} attention heads for feature_dim={opt.nz}")
-            
-            # Temporal attention for generator features (at bottleneck)
+              # Temporal attention for generator features (at bottleneck)
             self.temporal_attention_gen = TemporalAttention(
                 feature_dim=opt.nz, 
                 num_frames=self.num_frames, 
                 num_heads=num_heads
-            ).to(self.device)
+            )
+            # Apply device placement and DataParallel if needed
+            if len(opt.gpu_ids) > 0 and opt.gpu_ids[0] >= 0:
+                self.temporal_attention_gen = self.temporal_attention_gen.to(opt.gpu_ids[0])
+                if len(opt.gpu_ids) > 1:
+                    self.temporal_attention_gen = torch.nn.DataParallel(self.temporal_attention_gen, opt.gpu_ids)
+            else:
+                self.temporal_attention_gen = self.temporal_attention_gen.to(self.device)
             
             # Temporal attention for discriminator features  
             self.temporal_attention_disc = TemporalAttention(
                 feature_dim=opt.nz,
                 num_frames=self.num_frames,
                 num_heads=num_heads
-            ).to(self.device)
+            )
+            # Apply device placement and DataParallel if needed
+            if len(opt.gpu_ids) > 0 and opt.gpu_ids[0] >= 0:
+                self.temporal_attention_disc = self.temporal_attention_disc.to(opt.gpu_ids[0])
+                if len(opt.gpu_ids) > 1:
+                    self.temporal_attention_disc = torch.nn.DataParallel(self.temporal_attention_disc, opt.gpu_ids)
+            else:
+                self.temporal_attention_disc = self.temporal_attention_disc.to(self.device)
             
             # Multi-scale temporal fusion for input features
             self.temporal_fusion = TemporalFeatureFusion(
                 feature_dim=3,  # RGB channels
                 num_frames=self.num_frames
-            ).to(self.device)
+            )
+            # Apply device placement and DataParallel if needed
+            if len(opt.gpu_ids) > 0 and opt.gpu_ids[0] >= 0:
+                self.temporal_fusion = self.temporal_fusion.to(opt.gpu_ids[0])
+                if len(opt.gpu_ids) > 1:
+                    self.temporal_fusion = torch.nn.DataParallel(self.temporal_fusion, opt.gpu_ids)
+            else:
+                self.temporal_fusion = self.temporal_fusion.to(self.device)
             
             print(f"✅ Temporal attention modules initialized for {self.num_frames} frames")
-        
-        # Temporal loss for regularization
+          # Temporal loss for regularization
         self.use_temporal_loss = getattr(opt, 'use_temporal_loss', False)
         if self.use_temporal_loss:
             self.temporal_loss = CombinedTemporalLoss(
                 in_channels=opt.nz,
                 num_frames=self.num_frames
-            ).to(self.device)
+            )
+            # Apply device placement and DataParallel if needed
+            if len(opt.gpu_ids) > 0 and opt.gpu_ids[0] >= 0:
+                self.temporal_loss = self.temporal_loss.to(opt.gpu_ids[0])
+                if len(opt.gpu_ids) > 1:
+                    self.temporal_loss = torch.nn.DataParallel(self.temporal_loss, opt.gpu_ids)
+            else:
+                self.temporal_loss = self.temporal_loss.to(self.device)
             print("✅ Temporal loss module initialized")
         
         # Additional setup for video model
