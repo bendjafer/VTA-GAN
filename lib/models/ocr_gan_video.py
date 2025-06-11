@@ -363,11 +363,10 @@ class Ocr_Gan_Video(BaseModel_Video):
             self.times = []
             self.total_steps = 0
             epoch_iter = 0
-            
-            # Add progress bar for testing
+              # Add progress bar for testing
             test_bar = tqdm(enumerate(self.data.valid, 0), 
                           total=len(self.data.valid),
-                          desc=f"🔍 Testing {self.name}",
+                          desc=f"Testing {self.name}",
                           unit="batch")
             
             for i, data in test_bar:
@@ -420,11 +419,9 @@ class Ocr_Gan_Video(BaseModel_Video):
                 self.gt_labels[i*self.opt.batchsize: i*self.opt.batchsize + error.size(0)] = self.gt.reshape(error.size(0))
 
                 self.times.append(time_o - time_i)
-                
-                # Update progress bar
+                  # Update progress bar - clean and minimal
                 test_bar.set_postfix({
-                    'Batch': f"{i+1}/{len(self.data.valid)}",
-                    'Time(ms)': f"{(time_o - time_i)*1000:.1f}"
+                    'Batch': f"{i+1}/{len(self.data.valid)}"
                 })
 
                 # Save test images (save middle frame of each snippet)
@@ -461,33 +458,36 @@ class Ocr_Gan_Video(BaseModel_Video):
                 self.visualizer.print_current_performance(performance, auc)
 
             return performance
-
+    
     def train(self):
         """Train the video model"""
         print(f"\n>> Training {self.name} on {self.opt.dataset}")
         
         best_auc = 0
-        
-        # Add progress bar for epochs
+          # Add progress bar for epochs
         epoch_bar = tqdm(range(self.opt.niter), 
-                        desc="🚀 Training Progress", 
+                        desc="Training Progress", 
                         unit="epoch")
         
         # Train for niter epochs
         for epoch in epoch_bar:
             self.epoch = epoch
-            epoch_bar.set_description(f"🚀 Epoch {epoch+1}/{self.opt.niter}")
+            epoch_bar.set_description(f"Epoch {epoch+1}/{self.opt.niter}")
             
             # Set to training mode
             self.netg.train()
             self.netd.train()
             
             epoch_iter = 0
+              # Track training losses for epoch summary
+            epoch_losses = []
+            recent_losses = []  # For running average in progress bar
+            epoch_start_time = time.time()
             
             # Add progress bar for training batches
             train_bar = tqdm(enumerate(self.data.train, 0),
                            total=len(self.data.train),
-                           desc=f"📈 Training Epoch {epoch+1}/{self.opt.niter}",
+                           desc=f"Training Epoch {epoch+1}/{self.opt.niter}",
                            unit="batch",
                            leave=False)
             
@@ -499,17 +499,29 @@ class Ocr_Gan_Video(BaseModel_Video):
                 self.set_input(data, noise=True)
                 self.optimize_params()
                 
-                # Update progress bar with loss information
+                # Collect losses for epoch summary
                 errors = self.get_errors()
-                train_bar.set_postfix({
-                    'G_loss': f"{errors['err_g']:.4f}",
-                    'D_loss': f"{errors['err_d']:.4f}",
-                    'Batch': f"{i+1}/{len(self.data.train)}"
-                })
-                  # Print losses
+                epoch_losses.append(errors)
+                recent_losses.append(errors)
+                  # Always log detailed losses to file for every batch (but not console)
                 if self.total_steps % self.opt.print_freq == 0:
-                    self.visualizer.print_current_errors(epoch, errors)
+                    self.visualizer.print_current_errors(epoch, errors, print_to_console=False)
+                
+                # Update progress bar with running average every few batches
+                if len(recent_losses) >= 5 or i == len(self.data.train) - 1:
+                    # Calculate running average for progress bar
+                    avg_g_loss = np.mean([loss['err_g'] for loss in recent_losses])
+                    avg_d_loss = np.mean([loss['err_d'] for loss in recent_losses])
                     
+                    train_bar.set_postfix({
+                        'G_avg': f"{avg_g_loss:.3f}",
+                        'D_avg': f"{avg_d_loss:.3f}",
+                        'Batch': f"{i+1}/{len(self.data.train)}"
+                    })
+                    
+                    # Reset recent losses for next interval
+                    recent_losses = []
+                
                 # Save images
                 if self.total_steps % self.opt.save_image_freq == 0:
                     reals, fakes, fake_lap, fake_res = self.get_current_images()
@@ -518,24 +530,45 @@ class Ocr_Gan_Video(BaseModel_Video):
             # Close training progress bar
             train_bar.close()
             
+            # Calculate epoch training summary
+            epoch_training_time = time.time() - epoch_start_time
+            
+            # Calculate mean training losses for the epoch
+            mean_training_losses = {}
+            if epoch_losses:
+                for key in epoch_losses[0].keys():
+                    mean_training_losses[key] = np.mean([loss[key] for loss in epoch_losses])
+            
+            # Log training summary
+            self.visualizer.log_epoch_training_summary(
+                epoch, self.opt.niter, mean_training_losses, epoch_training_time
+            )
+            
             # Test model at end of epoch
             performance = self.test()
             auc = performance['AUC']
+            
+            # Check if this is the best epoch
+            is_best_epoch = auc > best_auc
             
             # Update learning rate
             if self.opt.lr_policy != 'constant':
                 self.update_learning_rate()
             
             # Save weights if best
-            if auc >= best_auc:
+            if is_best_epoch:
                 best_auc = auc
                 self.save_weights(epoch, is_best=True)
             self.save_weights(epoch, is_best=False)
             
-            # Update epoch progress bar
+            # Log testing summary
+            self.visualizer.log_epoch_testing_summary(
+                epoch, self.opt.niter, performance, best_auc, is_best_epoch
+            )
+              # Update epoch progress bar - clean display
             epoch_bar.set_postfix({
                 'AUC': f"{auc:.4f}",
-                'Best_AUC': f"{best_auc:.4f}"
+                'Best': f"{best_auc:.4f}"
             })
         
         # Close epoch progress bar

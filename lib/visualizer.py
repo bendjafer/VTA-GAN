@@ -121,28 +121,115 @@ class Visualizer():
         )
 
     ##
-    def print_current_errors(self, epoch, errors):
-        """ Print current errors.
+    def print_current_errors(self, epoch, errors, print_to_console=False):
+        """ Print current errors to log file (and optionally console).
 
         Args:
             epoch (int): Current epoch.
             errors (OrderedDict): Error for the current epoch.
-            batch_i (int): Current batch
-            batch_n (int): Total Number of batches.
+            print_to_console (bool): Whether to also print to console
         """
         # message = '   [%d/%d] ' % (epoch, self.opt.niter)
         message = '   Loss: [%d/%d] ' % (epoch, self.opt.niter)
         for key, val in errors.items():
             message += '%s: %.3f ' % (key, val)
 
-        print(message)
-        with open(self.log_name, "a") as log_file:
+        # Only print to console if explicitly requested
+        if print_to_console:
+            print(message)
+            
+        # Always log to file
+        with open(self.log_name, "a", encoding='utf-8') as log_file:
             log_file.write('%s\n' % message)
 
     ##
+    def log_running_average(self, epoch, total_epochs, recent_losses, interval_batches):
+        """Log running average of losses over a batch interval
+        
+        Args:
+            epoch (int): Current epoch number (0-indexed)
+            total_epochs (int): Total number of epochs
+            recent_losses (list): List of recent loss dictionaries
+            interval_batches (int): Number of batches in this interval
+        """
+        if not recent_losses:
+            return
+            
+        # Calculate running averages
+        avg_losses = {}
+        for key in recent_losses[0].keys():
+            avg_losses[key] = np.mean([loss[key] for loss in recent_losses])
+        
+        # Create concise message
+        message = f"   Running Avg [{epoch+1}/{total_epochs}] ({interval_batches} batches):"
+        for loss_name, loss_value in avg_losses.items():
+            message += f" {loss_name}={loss_value:.4f}"
+            
+        print(message)
+        self.write_to_log_file(message)
+
+    ##
     def write_to_log_file(self, text):
-        with open(self.log_name, "a") as log_file:
+        with open(self.log_name, "a", encoding='utf-8') as log_file:
             log_file.write('%s\n' % text)
+
+    ##
+    def log_epoch_training_summary(self, epoch, total_epochs, training_losses, training_time):
+        """Log comprehensive training summary for each epoch
+        
+        Args:
+            epoch (int): Current epoch number (0-indexed)
+            total_epochs (int): Total number of epochs
+            training_losses (dict): Dictionary containing mean training losses
+            training_time (float): Training time for this epoch in seconds
+        """
+        # Create training summary message
+        message = f"[TRAIN] EPOCH {epoch+1}/{total_epochs}:"
+        message += f" Time={training_time:.2f}s"
+        
+        # Add loss information
+        for loss_name, loss_value in training_losses.items():
+            message += f" {loss_name}={loss_value:.4f}"
+            
+        print(message)
+        self.write_to_log_file(message)
+
+    ##
+    def log_epoch_testing_summary(self, epoch, total_epochs, test_metrics, best_auc, is_best_epoch=False):
+        """Log comprehensive testing summary for each epoch
+        
+        Args:
+            epoch (int): Current epoch number (0-indexed)
+            total_epochs (int): Total number of epochs
+            test_metrics (dict): Dictionary containing test metrics (AUC, runtime, etc.)
+            best_auc (float): Best AUC achieved so far
+            is_best_epoch (bool): Whether this epoch achieved new best AUC
+        """
+        # Create testing summary message
+        message = f"[TEST] EPOCH {epoch+1}/{total_epochs}:"
+        
+        # Add test metrics
+        for metric_name, metric_value in test_metrics.items():
+            if metric_name == 'AUC':
+                message += f" AUC={metric_value:.4f}"
+            elif 'Time' in metric_name or 'Runtime' in metric_name:
+                message += f" Time={metric_value:.1f}ms"
+            else:
+                message += f" {metric_name}={metric_value:.4f}"
+        
+        # Add best AUC tracking
+        message += f" | Best_AUC={best_auc:.4f}"
+        
+        # Add indicator for best epoch
+        if is_best_epoch:
+            message += " ** NEW BEST! **"
+            
+        print(message)
+        self.write_to_log_file(message)
+        
+        # Also log a separator for clarity between epochs
+        separator = "=" * 80
+        self.write_to_log_file(separator)
 
     ##
     def print_current_performance(self, performance, best):
@@ -178,15 +265,20 @@ class Visualizer():
         self.vis.images(fakes, win=2, opts={'title': 'Fakes'})
         # self.vis.images(fixed, win=3, opts={'title': 'Fixed'})
 
-    def save_current_images(self, epoch, reals, fakes, fixed):
+    def save_current_images(self, epoch, reals, fakes, fixed, extra=None):
         """ Save images for epoch i.
 
         Args:
             epoch ([int])        : Current epoch
             reals ([FloatTensor]): Real Image
             fakes ([FloatTensor]): Fake Image
-            fixed ([FloatTensor]): Fixed Fake Image
+            fixed ([FloatTensor]): Fixed Fake Image or additional output
+            extra ([FloatTensor], optional): Additional output for video models
         """
         vutils.save_image(reals, '%s/reals.png' % self.img_dir, normalize=True)
         vutils.save_image(fakes, '%s/fakes.png' % self.img_dir, normalize=True)
         vutils.save_image(fixed, '%s/fixed_fakes_%03d.png' %(self.img_dir, epoch+1), normalize=True)
+        
+        # Save additional output if provided (for video models)
+        if extra is not None:
+            vutils.save_image(extra, '%s/extra_output_%03d.png' %(self.img_dir, epoch+1), normalize=True)

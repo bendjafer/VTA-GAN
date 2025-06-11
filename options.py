@@ -38,7 +38,7 @@ class Options():
         self.parser.add_argument('--display_id', type=int, default=0, help='window id of the web display')
         self.parser.add_argument('--display', action='store_true', help='Use visdom.')
         self.parser.add_argument('--verbose', action='store_true', help='Print the training and model details.')
-        self.parser.add_argument('--outf', default='./output', help='folder to output images and model checkpoints')
+        self.parser.add_argument('--outf', default='./output', help='folder to outpuucsd2t images and model checkpoints')
         self.parser.add_argument('--manualseed', default=1, type=int, help='manual seed')
         self.parser.add_argument('--note', default='bad', help='note for experiments')
         self.parser.add_argument('--metric', type=str, default='roc', help='Evaluation metric.')
@@ -70,6 +70,25 @@ class Options():
         self.parser.add_argument('--w_temporal_motion', type=float, default=0.05, help='Weight for temporal motion loss')
         self.parser.add_argument('--w_temporal_reg', type=float, default=0.01, help='Weight for temporal attention regularization')
         
+        # Video aspect ratio handling
+        self.parser.add_argument('--aspect_method', type=str, default='maintain_3_2', 
+                                choices=['maintain_3_2', 'center_crop', 'pad_square', 'stretch'],
+                                help='Method for handling video aspect ratio: '
+                                     'maintain_3_2 (keep 3:2 ratio, recommended), '
+                                     'center_crop (crop to square), '
+                                     'pad_square (pad to square), '
+                                     'stretch (original behavior, causes distortion)')
+        
+        # UCSD Ped2 specific augmentation options
+        self.parser.add_argument('--ucsd_augmentation', type=str, default='conservative',
+                                choices=['minimal', 'conservative', 'moderate'],
+                                help='UCSD Ped2 augmentation mode: '
+                                     'minimal (almost no augmentation), '
+                                     'conservative (default, balanced), '
+                                     'moderate (more variation)')
+        self.parser.add_argument('--use_ucsd_augmentation', action='store_true', 
+                                help='Use simplified UCSD Ped2 specific augmentation instead of general video augmentation')
+        
         self.parser.add_argument('--lr_policy', type=str, default='lambda', help='lambda|step|plateau')
         self.parser.add_argument('--lr_decay_iters', type=int, default=50, help='multiply by a gamma every lr_decay_iters iterations')
         self.isTrain = True
@@ -91,9 +110,12 @@ class Options():
             if id >= 0:
                 self.opt.gpu_ids.append(id)
 
-        # set gpu ids
-        if len(self.opt.gpu_ids) > 0:
+        # set gpu ids - only if using GPU device and CUDA is available
+        if len(self.opt.gpu_ids) > 0 and self.opt.device == 'gpu' and torch.cuda.is_available():
             torch.cuda.set_device(self.opt.gpu_ids[0])
+        elif self.opt.device == 'cpu' or not torch.cuda.is_available():
+            # Force CPU mode if explicitly requested or CUDA not available
+            self.opt.gpu_ids = []
 
         args = vars(self.opt)
 
